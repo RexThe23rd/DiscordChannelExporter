@@ -12,23 +12,39 @@ TOKEN = os.getenv("DISCORD_TOKEN")
 OUTPUT_FILE = Path("world_export.json")
 
 
-def channel_entry(channel):
+async def channel_entry(channel):
     """Represent a channel and its metadata."""
     entry = {
         "name": channel.name,
         "type": str(channel.type),
         "id": channel.id,
-        "locations": [],
+        "posts": [],
     }
 
     if isinstance(channel, discord.ForumChannel):
-        # Forum posts are threads; collect active ones here.
+        # Collect active forum posts.
         for thread in channel.threads:
-            entry["locations"].append({
+            entry["posts"].append({
                 "name": thread.name,
                 "id": thread.id,
                 "archived": thread.archived,
             })
+
+        # Collect archived forum posts.
+        try:
+            async for thread in channel.archived_threads(limit=None):
+                if not any(
+                    item["id"] == thread.id
+                    for item in entry["posts"]
+                ):
+                    entry["posts"].append({
+                        "name": thread.name,
+                        "id": thread.id,
+                        "archived": True,
+                    })
+
+        except discord.Forbidden:
+            print(f"Cannot read archived posts in #{channel.name}")
 
     return entry
 
@@ -36,6 +52,7 @@ def channel_entry(channel):
 class WorldExporter(discord.Client):
     async def on_ready(self):
         print(f"Connected as {self.user}")
+
         guilds = list(self.guilds)
 
         if not guilds:
@@ -53,7 +70,7 @@ class WorldExporter(discord.Client):
                 "uncategorized_channels": [],
             }
 
-            # Include normal channels and forum channels.
+            # Export categorized channels.
             for category in guild.categories:
                 category_data = {
                     "name": category.name,
@@ -61,40 +78,25 @@ class WorldExporter(discord.Client):
                 }
 
                 for channel in category.channels:
-                    data = channel_entry(channel)
-
-                    if isinstance(channel, discord.ForumChannel):
-                        try:
-                            async for thread in channel.archived_threads(limit=None):
-                                if not any(
-                                    item["id"] == thread.id
-                                    for item in data["locations"]
-                                ):
-                                    data["locations"].append({
-                                        "name": thread.name,
-                                        "id": thread.id,
-                                        "archived": True,
-                                    })
-                        except discord.Forbidden:
-                            print(
-                                f"Cannot read archived posts in "
-                                f"#{channel.name}"
-                            )
-
+                    data = await channel_entry(channel)
                     category_data["channels"].append(data)
 
                 result["categories"].append(category_data)
 
-            # Also retain channels that don't belong to a category.
+            # Export channels without a category.
             for channel in guild.channels:
-                if channel.category is None:
-                    result["uncategorized_channels"].append(
-                        channel_entry(channel)
-                    )
+                if (
+                    channel.category is None
+                    and not isinstance(channel, discord.CategoryChannel)
+                ):
+                    data = await channel_entry(channel)
+                    result["uncategorized_channels"].append(data)
 
+            # Save the server export.
             output_path = OUTPUT_FILE.with_name(
                 f"{guild.id}_{OUTPUT_FILE.name}"
             )
+
             output_path.write_text(
                 json.dumps(result, indent=2, ensure_ascii=False),
                 encoding="utf-8",
