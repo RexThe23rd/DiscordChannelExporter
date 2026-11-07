@@ -1,104 +1,143 @@
 import os
 import json
 import asyncio
+import argparse
+
 from pathlib import Path
 
 import discord
 from dotenv import load_dotenv
 
+from ExportUtils.channels import channel_entry
+
 load_dotenv()
 
 TOKEN = os.getenv("DISCORD_TOKEN")
-OUTPUT_FILE = Path("world_export.json")
+OUTPUT_DIR = Path("data/raw")
 
 
-async def channel_entry(channel):
-    """Represent a channel and its metadata."""
-    entry = {
-        "name": channel.name,
-        "type": str(channel.type),
-        "id": channel.id,
-        "posts": [],
-    }
+# -----------------------------------------
+# ARGUMENTS
+# -----------------------------------------
 
-    if isinstance(channel, discord.ForumChannel):
-        # Collect active forum posts.
-        for thread in channel.threads:
-            entry["posts"].append({
-                "name": thread.name,
-                "id": thread.id,
-                "archived": thread.archived,
-            })
+def parse_arguments():
 
-        # Collect archived forum posts.
-        try:
-            async for thread in channel.archived_threads(limit=None):
-                if not any(
-                    item["id"] == thread.id
-                    for item in entry["posts"]
-                ):
-                    entry["posts"].append({
-                        "name": thread.name,
-                        "id": thread.id,
-                        "archived": True,
-                    })
+    parser = argparse.ArgumentParser(
+        description="Discord server exporter."
+    )
 
-        except discord.Forbidden:
-            print(f"Cannot read archived posts in #{channel.name}")
+    parser.add_argument(
+        "--exclude",
+        nargs="+",
+        default=[],
+        help="Categories to exclude from export."
+    )
 
-    return entry
+    parser.add_argument(
+        "--separate",
+        nargs="+",
+        default=[],
+        help="Categories to export as references."
+    )
 
+    return parser.parse_args()
+
+
+# -----------------------------------------
+# DISCORD CLIENT
+# -----------------------------------------
 
 class WorldExporter(discord.Client):
+
+    def __init__(self, *args, options, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.options = options
+
     async def on_ready(self):
+
         print(f"Connected as {self.user}")
 
-        guilds = list(self.guilds)
-
-        if not guilds:
+        if not self.guilds:
             print("No servers are visible to the bot.")
             await self.close()
             return
 
-        for guild in guilds:
-            print(f"Exporting server: {guild.name}")
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+        for guild in self.guilds:
+
+            print(f"\nExporting server: {guild.name}")
 
             result = {
                 "server": guild.name,
                 "server_id": guild.id,
                 "categories": [],
+                "references": {},
                 "uncategorized_channels": [],
             }
 
-            # Export categorized channels.
+            # ---------------------------------
+            # CATEGORIZED CHANNELS
+            # ---------------------------------
+
             for category in guild.categories:
+
+                name = category.name
+
+                # Exclusion takes priority.
+                if name in self.options.exclude:
+                    print(f"Excluded category: {name}")
+                    continue
+
                 category_data = {
-                    "name": category.name,
+                    "name": name,
+                    "id": category.id,
                     "channels": [],
                 }
 
                 for channel in category.channels:
+
                     data = await channel_entry(channel)
                     category_data["channels"].append(data)
 
-                result["categories"].append(category_data)
+                # Separate reference categories.
+                if name in self.options.separate:
 
-            # Export channels without a category.
+                    result["references"][name] = category_data
+
+                else:
+                    result["categories"].append(category_data)
+
+            # ---------------------------------
+            # UNCATEGORIZED CHANNELS
+            # ---------------------------------
+
             for channel in guild.channels:
+
                 if (
                     channel.category is None
-                    and not isinstance(channel, discord.CategoryChannel)
+                    and not isinstance(
+                        channel,
+                        discord.CategoryChannel
+                    )
                 ):
+
                     data = await channel_entry(channel)
+
                     result["uncategorized_channels"].append(data)
 
-            # Save the server export.
-            output_path = OUTPUT_FILE.with_name(
-                f"{guild.id}_{OUTPUT_FILE.name}"
-            )
+            # ---------------------------------
+            # SAVE EXPORT
+            # ---------------------------------
+
+            output_path = OUTPUT_DIR / f"{guild.id}_world_export.json"
 
             output_path.write_text(
-                json.dumps(result, indent=2, ensure_ascii=False),
+                json.dumps(
+                    result,
+                   indent=2,
+                    ensure_ascii=False
+                ),
                 encoding="utf-8",
             )
 
@@ -107,12 +146,28 @@ class WorldExporter(discord.Client):
         await self.close()
 
 
-intents = discord.Intents.default()
-client = WorldExporter(intents=intents)
+# -----------------------------------------
+# MAIN
+# -----------------------------------------
 
-if not TOKEN:
-    raise RuntimeError(
-        "DISCORD_TOKEN is missing. Check your .env file."
+async def main():
+
+    if not TOKEN:
+        raise RuntimeError(
+            "DISCORD_TOKEN is missing. Check your .env file."
+        )
+
+    options = parse_arguments()
+
+    intents = discord.Intents.default()
+
+    client = WorldExporter(
+        intents=intents,
+        options=options
     )
 
-asyncio.run(client.start(TOKEN))
+    await client.start(TOKEN)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
