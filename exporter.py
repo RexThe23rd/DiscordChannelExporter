@@ -160,6 +160,7 @@ async def main():
     options = parse_arguments()
 
     intents = discord.Intents.default()
+    intents.message_content = True
 
     client = WorldExporter(
         intents=intents,
