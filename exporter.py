@@ -145,12 +145,24 @@ class WorldExporter(discord.Client):
             # Collect and classify messages.
             all_messages = collect_messages(result)
 
+                        
+            rp_messages = filter_messages(all_messages, "rp")
+            movement_messages = filter_messages(all_messages, "movement")
+
+            # Combine RP and movement events into one chronological timeline.
+            timeline = sorted(
+                rp_messages + movement_messages,
+                key=lambda message: message["timestamp"]
+            )
+
             processed = {
                 "server": guild.name,
                 "server_id": guild.id,
-                "rp_messages": filter_messages(all_messages, "rp"),
-                "movement_messages": filter_messages(all_messages, "movement"),
+                "rp_messages": rp_messages,
+                "movement_messages": movement_messages,
+                "timeline": timeline,
             }
+
 
             # Save the processed export.
             PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
