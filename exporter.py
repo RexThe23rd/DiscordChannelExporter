@@ -9,11 +9,13 @@ import discord
 from dotenv import load_dotenv
 
 from ExportUtils.channels import channel_entry
+from ExportUtils.filters import collect_messages, filter_messages
 
 load_dotenv()
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 OUTPUT_DIR = Path("data/raw")
+PROCESSED_DIR = Path("data/processed")
 
 
 # -----------------------------------------
@@ -128,20 +130,40 @@ class WorldExporter(discord.Client):
 
             # ---------------------------------
             # SAVE EXPORT
-            # ---------------------------------
-
+            # ---------------------------------            
+            # Save the complete raw export.
+            
             output_path = OUTPUT_DIR / f"{guild.id}_world_export.json"
 
             output_path.write_text(
-                json.dumps(
-                    result,
-                   indent=2,
-                    ensure_ascii=False
-                ),
+                json.dumps(result, indent=2, ensure_ascii=False),
                 encoding="utf-8",
             )
 
-            print(f"Saved: {output_path.resolve()}")
+            print(f"Saved raw export: {output_path.resolve()}")
+
+            # Collect and classify messages.
+            all_messages = collect_messages(result)
+
+            processed = {
+                "server": guild.name,
+                "server_id": guild.id,
+                "rp_messages": filter_messages(all_messages, "rp"),
+                "movement_messages": filter_messages(all_messages, "movement"),
+            }
+
+            # Save the processed export.
+            PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
+
+            processed_path = PROCESSED_DIR / f"{guild.id}_processed.json"
+
+            processed_path.write_text(
+                json.dumps(processed, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+
+            print(f"Saved processed export: {processed_path.resolve()}")
+
 
         await self.close()
 

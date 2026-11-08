@@ -11,6 +11,11 @@ def message_summary(message):
         character_name = message.author.display_name
         discord_author = None
 
+    elif message.is_system():
+        author_type = "system"
+        character_name = None
+        discord_author = None
+
     elif message.author.bot:
         author_type = "bot"
         character_name = None
@@ -47,7 +52,7 @@ def parse_quoted_reply(content):
     message_id = url_match.group(2)
 
     mention_match = re.search(
-        r">\s*:\s*@?(.+?)\s*\(<@!?(\d+)>\)",
+        r"@(.+?)\s*\(<@!?(\d+)>\)",
         content[url_match.end():]
     )
 
@@ -58,19 +63,14 @@ def parse_quoted_reply(content):
         character_name = mention_match.group(1).strip()
         discord_user_id = mention_match.group(2)
 
-    # Extract the quoted message preview.
     lines = content.splitlines()
     preview_lines = []
-
     header_found = False
 
     for line in lines:
-
         if not header_found:
-
             if "[Reply to]" in line:
                 header_found = True
-
             continue
 
         stripped = line.lstrip()
@@ -78,7 +78,6 @@ def parse_quoted_reply(content):
         if not stripped.startswith(">"):
             break
 
-        # Remove nested Discord quote markers.
         quoted_line = re.sub(
             r"^\s*(?:>\s*)+",
             "",
@@ -96,6 +95,7 @@ def parse_quoted_reply(content):
         "discord_user_id": discord_user_id,
         "preview": preview,
     }
+
 
 
 async def export_messages(channel):
@@ -149,7 +149,7 @@ async def export_messages(channel):
                     entry["reply_channel_id"] = str(
                         message.reference.channel_id
                     )
-
+            
             messages.append(entry)
             message_lookup[str(message.id)] = entry
 
