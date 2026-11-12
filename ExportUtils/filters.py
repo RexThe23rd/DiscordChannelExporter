@@ -41,7 +41,6 @@ def filter_messages(messages, classification):
 
 
 def collect_messages(export_data):
-    """Collect messages from categories, references, and forum posts."""
 
     collected = []
 
@@ -72,3 +71,80 @@ def collect_messages(export_data):
         add_channel(channel)
 
     return collected
+
+def group_character_messages(rp_messages, all_messages):
+    """Group RP messages by character and connect their replies."""
+
+    characters = {}
+    interactions = []
+    unassigned = []
+
+    # Create a lookup of every exported message by its ID.
+    message_lookup = {
+        message["id"]: message
+        for message in all_messages
+    }
+
+    for message in rp_messages:
+
+        character_name = message.get("character_name")
+
+        # Keep messages without a character name separately.
+        if not character_name:
+            unassigned.append(message.copy())
+            continue
+
+        entry = message.copy()
+
+        # Create the character group if it doesn't exist.
+        if character_name not in characters:
+            characters[character_name] = []
+
+        # Find the message this character is replying to.
+        quoted_reply = message.get("quoted_reply") or {}
+
+        target_id = (
+            quoted_reply.get("message_id")
+            or message.get("reply_to")
+        )
+
+        if target_id:
+
+            target = message_lookup.get(target_id)
+
+            target_character = (
+                target.get("character_name")
+                if target and target.get("author_type") == "tupper"
+                else None
+            )
+
+            entry["reply"] = {
+                "message_id": target_id,
+                "character_name": target_character,
+                "found": target is not None,
+            }
+
+            interactions.append({
+                "from": character_name,
+                "to": target_character,
+                "message_id": message["id"],
+                "target_message_id": target_id,
+                "target_found": target is not None,
+            })
+
+        else:
+            entry["reply"] = None
+
+        characters[character_name].append(entry)
+
+    # Keep each character's messages chronological.
+    for messages in characters.values():
+        messages.sort(
+            key=lambda message: message["timestamp"]
+        )
+
+    return {
+        "characters": characters,
+        "interactions": interactions,
+        "unassigned_character_messages": unassigned,
+    }

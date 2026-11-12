@@ -9,7 +9,11 @@ import discord
 from dotenv import load_dotenv
 
 from ExportUtils.channels import channel_entry
-from ExportUtils.filters import collect_messages, filter_messages
+from ExportUtils.filters import (
+    collect_messages,
+    filter_messages,
+    group_character_messages,
+)
 
 load_dotenv()
 
@@ -148,6 +152,12 @@ class WorldExporter(discord.Client):
                         
             rp_messages = filter_messages(all_messages, "rp")
             movement_messages = filter_messages(all_messages, "movement")
+            
+            # Group RP messages by character and extract interactions.
+            character_data = group_character_messages(
+                rp_messages,
+                all_messages
+            )
 
             # Combine RP and movement events into one chronological timeline.
             timeline = sorted(
@@ -158,9 +168,16 @@ class WorldExporter(discord.Client):
             processed = {
                 "server": guild.name,
                 "server_id": guild.id,
+
                 "rp_messages": rp_messages,
                 "movement_messages": movement_messages,
                 "timeline": timeline,
+
+                "characters": character_data["characters"],
+                "interactions": character_data["interactions"],
+                "unassigned_character_messages": (
+                    character_data["unassigned_character_messages"]
+                ),
             }
 
 
