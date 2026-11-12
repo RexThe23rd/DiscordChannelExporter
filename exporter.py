@@ -9,15 +9,20 @@ import discord
 from dotenv import load_dotenv
 
 from ExportUtils.channels import channel_entry
+
 from ExportUtils.filters import (
     collect_messages,
     filter_messages,
     group_character_messages,
+    validate_processed_data,
+    timestamp_sort_key,
 )
+
 
 load_dotenv()
 
 TOKEN = os.getenv("DISCORD_TOKEN")
+
 OUTPUT_DIR = Path("data/raw")
 PROCESSED_DIR = Path("data/processed")
 
@@ -70,6 +75,8 @@ class WorldExporter(discord.Client):
 
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
+        PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
+
         for guild in self.guilds:
 
             print(f"\nExporting server: {guild.name}")
@@ -92,6 +99,7 @@ class WorldExporter(discord.Client):
 
                 # Exclusion takes priority.
                 if name in self.options.exclude:
+
                     print(f"Excluded category: {name}")
                     continue
 
@@ -104,14 +112,17 @@ class WorldExporter(discord.Client):
                 for channel in category.channels:
 
                     data = await channel_entry(channel)
+
                     category_data["channels"].append(data)
 
                 # Separate reference categories.
+                # These contain world lore, systems, rules, etc.
                 if name in self.options.separate:
 
                     result["references"][name] = category_data
 
                 else:
+
                     result["categories"].append(category_data)
 
             # ---------------------------------
@@ -133,37 +144,79 @@ class WorldExporter(discord.Client):
                     result["uncategorized_channels"].append(data)
 
             # ---------------------------------
-            # SAVE EXPORT
-            # ---------------------------------            
-            # Save the complete raw export.
-            
-            output_path = OUTPUT_DIR / f"{guild.id}_world_export.json"
+            # SAVE RAW EXPORT
+            # ---------------------------------
+
+            output_path = (
+                OUTPUT_DIR / f"{guild.id}_world_export.json"
+            )
 
             output_path.write_text(
-                json.dumps(result, indent=2, ensure_ascii=False),
+                json.dumps(
+                    result,
+                    indent=2,
+                    ensure_ascii=False
+                ),
                 encoding="utf-8",
             )
 
             print(f"Saved raw export: {output_path.resolve()}")
 
-            # Collect and classify messages.
+            # ---------------------------------
+            # COLLECT MESSAGES
+            # ---------------------------------
+
             all_messages = collect_messages(result)
 
-                        
-            rp_messages = filter_messages(all_messages, "rp")
-            movement_messages = filter_messages(all_messages, "movement")
-            
-            # Group RP messages by character and extract interactions.
+            print(f"Collected messages: {len(all_messages)}")
+
+            # ---------------------------------
+            # CLASSIFY MESSAGES
+            # ---------------------------------
+
+            rp_messages = filter_messages(
+                all_messages,
+                "rp"
+            )
+
+            movement_messages = filter_messages(
+                all_messages,
+                "movement"
+            )
+
+            # ---------------------------------
+            # CHARACTER GROUPING
+            # ---------------------------------
+
             character_data = group_character_messages(
                 rp_messages,
                 all_messages
             )
 
-            # Combine RP and movement events into one chronological timeline.
+            # ---------------------------------
+            # TIMELINE
+            # ---------------------------------
+
             timeline = sorted(
                 rp_messages + movement_messages,
-                key=lambda message: message["timestamp"]
+                key=timestamp_sort_key
             )
+
+            # ---------------------------------
+            # VALIDATION
+            # ---------------------------------
+
+            validation = validate_processed_data(
+                all_messages,
+                rp_messages,
+                movement_messages,
+                timeline,
+                character_data,
+            )
+
+            # ---------------------------------
+            # PROCESSED EXPORT
+            # ---------------------------------
 
             processed = {
                 "server": guild.name,
@@ -173,26 +226,70 @@ class WorldExporter(discord.Client):
                 "movement_messages": movement_messages,
                 "timeline": timeline,
 
+                "validation": validation,
+
                 "characters": character_data["characters"],
                 "interactions": character_data["interactions"],
+
                 "unassigned_character_messages": (
                     character_data["unassigned_character_messages"]
                 ),
             }
 
-
-            # Save the processed export.
-            PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
-
-            processed_path = PROCESSED_DIR / f"{guild.id}_processed.json"
+            processed_path = (
+                PROCESSED_DIR / f"{guild.id}_processed.json"
+            )
 
             processed_path.write_text(
-                json.dumps(processed, indent=2, ensure_ascii=False),
+                json.dumps(
+                    processed,
+                    indent=2,
+                    ensure_ascii=False
+                ),
                 encoding="utf-8",
             )
 
             print(f"Saved processed export: {processed_path.resolve()}")
 
+            # ---------------------------------
+            # EXPORT SUMMARY
+            # ---------------------------------
+
+            print(
+                f"Validation: "
+                f"{'PASSED' if validation['passed'] else 'CHECK REQUIRED'}"
+            )
+
+            print(
+                f"Messages: {validation['message_count']} | "
+                f"RP: {validation['rp_message_count']} | "
+                f"Movement: {validation['movement_message_count']}"
+            )
+
+            print(
+                f"Characters: {validation['character_count']} | "
+                f"Replies: {validation['reply_count']} | "
+                f"Resolved character replies: "
+                f"{validation['resolved_character_replies']}"
+            )
+
+            print(
+                f"Unresolved replies: "
+                f"{validation['unresolved_reply_targets']} | "
+                f"Non-character replies: "
+                f"{validation['non_character_reply_targets']}"
+            )
+
+            if not validation["passed"]:
+
+                print("Validation details:")
+
+                print(
+                    json.dumps(
+                        validation,
+                        indent=2
+                    )
+                )
 
         await self.close()
 
@@ -204,6 +301,7 @@ class WorldExporter(discord.Client):
 async def main():
 
     if not TOKEN:
+
         raise RuntimeError(
             "DISCORD_TOKEN is missing. Check your .env file."
         )
@@ -222,4 +320,5 @@ async def main():
 
 
 if __name__ == "__main__":
+
     asyncio.run(main())
