@@ -116,21 +116,25 @@ def associate_movement_responses(messages):
             if current.get("author_type") != "bot":
                 continue
 
-            author = current.get("discord_author", "").lower()
+            author = (current.get("discord_author") or "").lower()
 
             if PROBOT_NAME not in author:
                 continue
 
             # The previous message must contain a movement command.
-            movement_type = extract_movement_type(previous)
-
             if not is_movement_command(previous):
                 continue
+            
+            movement_type = extract_movement_type(previous)
 
             # Mark ProBot's response as a movement event.
             current["classification"] = "movement"
-            current["movement_type"] = movement_type
-            current["command_message_id"] = previous.get("id")
+            current["movement_event"] = {
+                "type": movement_type,
+                "command_message_id": previous.get("id"),
+                "command_author": previous.get("discord_author"),
+                "character_name": previous.get("character_name"),
+            }
 
     return messages
 

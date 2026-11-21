@@ -23,8 +23,10 @@ load_dotenv()
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 
-OUTPUT_DIR = Path("data/raw")
-PROCESSED_DIR = Path("data/processed")
+BASE_DIR = Path(__file__).resolve().parent
+
+OUTPUT_DIR = BASE_DIR / "data" / "raw"
+PROCESSED_DIR = BASE_DIR / "data" / "processed"
 
 
 # -----------------------------------------
@@ -63,8 +65,14 @@ class WorldExporter(discord.Client):
     def __init__(self, *args, options, **kwargs):
         super().__init__(*args, **kwargs)
         self.options = options
+        self.export_started = False
 
     async def on_ready(self):
+        
+        if self.export_started:
+            return
+        
+        self.export_started = True
 
         print(f"Connected as {self.user}")
 
@@ -101,6 +109,11 @@ class WorldExporter(discord.Client):
                 if name in self.options.exclude:
 
                     print(f"Excluded category: {name}")
+                    continue
+                
+                if name in self.options.separate:
+                
+                    print(f"Separated category: {name}")
                     continue
 
                 category_data = {

@@ -1,4 +1,3 @@
-
 import re
 import discord
 
@@ -163,7 +162,7 @@ async def export_messages(channel):
             if (
                 message.author.bot
                 and message.webhook_id is None
-                and message.author.name.lower() != "probot"
+                and "probot" not in message.author.name.lower()
             ):
                 continue
 
